@@ -107,6 +107,7 @@ class IccSpoolerApp(toga.App):
         self._pump_task = None
         self._single_instance = None
         self._autosave_at = None
+        self._param_groups: list = []
 
     # -------------------------------------------------------------- lifecycle
     def startup(self):
@@ -520,8 +521,6 @@ class IccSpoolerApp(toga.App):
         self.rgb_to_cmyk = _switch(tr('Force RGB to CMYK (automatic when there is a CMYK adjustment)'))
         self.gray_to_k = _switch(tr('Force gray to K (automatic when there is a CMYK adjustment)'))
         self.neutral_to_k = _switch(tr('Route neutral gray to K (near-neutral RGB to pure K, removes gray cast)'))
-        self.neutral_to_k.on_change = self._on_toggle_neutral
-        self._neutral_anchor = _row("", self.neutral_to_k)
         self.neutral_vector_only = _switch(tr('Apply to vector content only (do not route images to K)'), True)
         self.neutral_threshold = _num(0.04, 0.0, 1.0, 0.01)
         self.neutral_min = _num(0.05, 0.0, 1.0, 0.01)
@@ -530,44 +529,50 @@ class IccSpoolerApp(toga.App):
         self.text_small_size = _num(7.0, 0.0, 200.0, 0.5)
         self.text_dpi = _num(600.0, 72.0, 2400.0, 50.0)
         self.process_images = _switch(tr('Process image pixels (automatic when there is a CMYK adjustment)'), True)
-        self._neutral_body = toga.Box(
-            style=Pack(direction=COLUMN),
-            children=[
+
+        k_section = self._build_k_section()
+        sep_section = self._build_sep_section()
+
+        body = toga.Box(style=Pack(direction=COLUMN, margin=6))
+        self._color_body = body
+        # Subordinate parameters live in a section that is hidden while the
+        # switch is off (one shared rule, see `_attach_params`).
+        self._neutral_anchor, self._neutral_body = self._attach_params(
+            body, self.neutral_to_k,
+            [
                 _row("", self.neutral_vector_only),
                 _row(tr('Neutral-gray threshold (0..1, e.g. 0.04)'), self.neutral_threshold),
                 _row(tr('Neutral-gray floor (keep ICC below this lightness to avoid near-black turning gray)'), self.neutral_min),
             ],
         )
-
-        k_section = self._build_k_section()
-        sep_section = self._build_sep_section()
-
-        body = toga.Box(
-            style=Pack(direction=COLUMN, margin=6),
-            children=[
-                toga.Label(tr('Color Conversion'), style=Pack(margin=(4, 6, 4, 6))),
-                toga.Label(
-                    tr('Auto mode: whenever any CMYK adjustment is set (K reduction / CMY scaling / separation, etc.), RGB and gray content is first converted to CMYK and then adjusted; image pixels and the preview are handled too, with no manual checking needed. The three switches above only force conversion when there is no CMYK adjustment.'),
-                    style=Pack(margin=(4, 6, 8, 6))),
-                _row(tr('Target ICC (CMYK)'), self._path_row(self.target_icc, directory=False)),
-                _row(tr('Input RGB ICC (optional)'), self._path_row(self.input_rgb_icc, directory=False)),
-                _row(tr('Rendering intent'), self.intent),
-                _row(tr('Color engine (CMM)'), self.cmm),
-                _row("", self.rgb_to_cmyk),
-                _row("", self.gray_to_k),
-                self._neutral_anchor,
-                _row("", self.text_solid_black),
+        self._text_anchor, self._text_body = self._attach_params(
+            body, self.text_solid_black,
+            [
                 _row(tr('Text near-black threshold (0..1, e.g. 0.2; text darker than this is K=100 at any size)'), self.text_solid_black_luma),
                 _row(tr('Small-text size (pt; at or below this, gray text becomes K=100)'), self.text_small_size),
                 _row(tr('Printer resolution (dpi, used to convert text size to points)'), self.text_dpi),
-                _row("", self.process_images),
-                toga.Box(style=Pack(height=1, margin=(8, 0, 8, 0))),
-                k_section,
-                toga.Box(style=Pack(height=1, margin=(8, 0, 8, 0))),
-                sep_section,
             ],
         )
-        self._color_body = body
+
+        body.add(
+            toga.Label(tr('Color Conversion'), style=Pack(margin=(4, 6, 4, 6))),
+            toga.Label(
+                tr('Auto mode: whenever any CMYK adjustment is set (K reduction / CMY scaling / separation, etc.), RGB and gray content is first converted to CMYK and then adjusted; image pixels and the preview are handled too, with no manual checking needed. The three switches above only force conversion when there is no CMYK adjustment.'),
+                style=Pack(margin=(4, 6, 8, 6))),
+            _row(tr('Target ICC (CMYK)'), self._path_row(self.target_icc, directory=False)),
+            _row(tr('Input RGB ICC (optional)'), self._path_row(self.input_rgb_icc, directory=False)),
+            _row(tr('Rendering intent'), self.intent),
+            _row(tr('Color engine (CMM)'), self.cmm),
+            _row("", self.rgb_to_cmyk),
+            _row("", self.gray_to_k),
+            self._neutral_anchor,
+            self._text_anchor,
+            _row("", self.process_images),
+            toga.Box(style=Pack(height=1, margin=(8, 0, 8, 0))),
+            k_section,
+            toga.Box(style=Pack(height=1, margin=(8, 0, 8, 0))),
+            sep_section,
+        )
         self._tab_color = toga.ScrollContainer(content=body, style=Pack(flex=1))
 
     def _build_sep_section(self) -> toga.Box:
@@ -628,14 +633,34 @@ class IccSpoolerApp(toga.App):
         elif not visible and present:
             parent.remove(section)
 
+    def _attach_params(self, parent, switch, rows):
+        """General rule: a switch's subordinate parameters hide while it is off.
+
+        Builds the anchor row for `switch` plus a parameters box from `rows`,
+        registers the pair so the box follows the switch on every toggle and can
+        be restored from config via `_sync_param_groups`, and returns
+        `(anchor, body)`. Put the anchor where the switch should appear; do not
+        add the body to the layout yourself.
+        """
+        anchor = _row("", switch)
+        body = toga.Box(style=Pack(direction=COLUMN), children=list(rows))
+
+        def _on_change(widget, **kwargs):
+            self._collapse(parent, body, anchor, bool(widget.value))
+
+        switch.on_change = _on_change
+        self._param_groups.append((parent, anchor, body, switch))
+        return anchor, body
+
+    def _sync_param_groups(self):
+        for parent, anchor, body, switch in self._param_groups:
+            self._collapse(parent, body, anchor, bool(switch.value))
+
     def _on_toggle_k(self, widget, **kwargs):
         self._collapse(self._k_section, self._k_body, self._k_anchor, widget.value)
 
     def _on_toggle_sep(self, widget, **kwargs):
         self._collapse(self._sep_section, self._sep_body, self._sep_anchor, widget.value)
-
-    def _on_toggle_neutral(self, widget, **kwargs):
-        self._collapse(self._color_body, self._neutral_body, self._neutral_anchor, widget.value)
 
     def _build_preview_tab(self):
         self._pv_source = "wheel"
@@ -1263,12 +1288,11 @@ class IccSpoolerApp(toga.App):
             self.neutral_vector_only.value = bool(c.neutral_vector_only)
             self.neutral_threshold.value = float(c.neutral_threshold)
             self.neutral_min.value = float(c.neutral_min)
-            self._collapse(self._color_body, self._neutral_body, self._neutral_anchor,
-                           bool(c.neutral_to_k))
             self.text_solid_black.value = bool(c.text_solid_black)
             self.text_solid_black_luma.value = float(c.text_solid_black_luma)
             self.text_small_size.value = float(c.text_small_size)
             self.text_dpi.value = float(c.text_dpi)
+            self._sync_param_groups()
             self.process_images.value = bool(c.process_images)
 
             scale = list(c.cmy_scale) + [1.0, 1.0, 1.0]
