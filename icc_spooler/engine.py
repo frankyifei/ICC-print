@@ -200,6 +200,7 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
                     out.append(Tok("token", b"grestore"))
                     out.append(Tok("ws", b" "))
                     handled = True
+                    engine._stats["text"] += 1
 
             elif d == b"gsave":
                 push_state()

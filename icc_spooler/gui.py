@@ -1410,10 +1410,13 @@ class IccSpoolerApp(toga.App):
         if not quiet:
             self._set_message(tr('Saved: {path}').format(path=self._config_path))
         if changed and self._controller.is_running():
-            self._log(tr('[gui] Config updated; restart the service to apply'))
-            self._controller.stop()
-            self._controller.start(cfg)
+            # Apply immediately: the watch loop copies the engine at start, so a
+            # change would otherwise silently keep using the old settings (a
+            # frequent source of "the setting does nothing" reports).
+            self._controller.restart(cfg)
             self._last_running = None
+            if not quiet:
+                self._set_message(tr('Saved and applied: {path}').format(path=self._config_path))
 
 
 def main(config_path=None, start_minimized: bool = False) -> int:

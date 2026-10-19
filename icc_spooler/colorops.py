@@ -117,7 +117,8 @@ class ColorEngine:
         self._rgb_backend = None
         self._rgb_failed = False
         self._rgb_cache: dict = {}
-        self._stats = {"cmyk": 0, "rgb": 0, "gray": 0, "images": 0, "images_skipped": 0}
+        self._stats = {"cmyk": 0, "rgb": 0, "gray": 0, "text": 0,
+                       "images": 0, "images_skipped": 0}
 
     @property
     def stats(self) -> dict:
