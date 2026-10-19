@@ -226,5 +226,8 @@
   "Autostart is only supported on Windows.": "自启动仅支持 Windows。",
   "Windows WCS is only available on Windows.": "Windows WCS 仅在 Windows 上可用。",
   "RGB→CMYK requires a valid target ICC file.": "RGB→CMYK 需要有效的目标 ICC 文件。",
-  "Windows sRGB profile not found (you can specify an input RGB ICC).": "找不到 Windows 的 sRGB 配置文件（可指定输入 RGB ICC）。"
+  "Windows sRGB profile not found (you can specify an input RGB ICC).": "找不到 Windows 的 sRGB 配置文件（可指定输入 RGB ICC）。",
+  "Keep near-black vector text solid black (K=100) so small text is not halftoned into a mesh": "矢量文字：近黑强制实心黑（K=100，避免小字被挂网变糊）",
+  "Text near-black threshold (0..1, e.g. 0.1)": "文字近黑阈值（0..1，例如 0.1）",
+  "color.text_solid_black_luma must be within 0..1.": "color.text_solid_black_luma 必须在 0..1 之间。"
 }

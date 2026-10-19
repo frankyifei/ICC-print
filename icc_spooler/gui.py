@@ -81,7 +81,8 @@ class IccSpoolerApp(toga.App):
         "cmy_c", "cmy_m", "cmy_y", "c_gamma", "m_gamma", "y_gamma", "k_gamma",
         "gcr", "ucr", "rich_black", "rich_black_threshold", "tac_limit",
         "tac_mode", "rgb_to_cmyk", "gray_to_k", "neutral_to_k",
-        "neutral_threshold", "neutral_min", "neutral_vector_only", "process_images",
+        "neutral_threshold", "neutral_min", "neutral_vector_only",
+        "text_solid_black", "text_solid_black_luma", "process_images",
         "target_icc", "input_rgb_icc", "intent", "cmm", "lang",
     )
     AUTOSAVE_DELAY = 0.8
@@ -523,6 +524,8 @@ class IccSpoolerApp(toga.App):
         self.neutral_vector_only = _switch(tr('Apply to vector content only (do not route images to K)'), True)
         self.neutral_threshold = _num(0.04, 0.0, 1.0, 0.01)
         self.neutral_min = _num(0.05, 0.0, 1.0, 0.01)
+        self.text_solid_black = _switch(tr('Keep near-black vector text solid black (K=100) so small text is not halftoned into a mesh'))
+        self.text_solid_black_luma = _num(0.10, 0.0, 1.0, 0.01)
         self.process_images = _switch(tr('Process image pixels (automatic when there is a CMYK adjustment)'), True)
         self._neutral_body = toga.Box(
             style=Pack(direction=COLUMN),
@@ -550,6 +553,8 @@ class IccSpoolerApp(toga.App):
                 _row("", self.rgb_to_cmyk),
                 _row("", self.gray_to_k),
                 self._neutral_anchor,
+                _row("", self.text_solid_black),
+                _row(tr('Text near-black threshold (0..1, e.g. 0.1)'), self.text_solid_black_luma),
                 _row("", self.process_images),
                 toga.Box(style=Pack(height=1, margin=(8, 0, 8, 0))),
                 k_section,
@@ -1255,6 +1260,8 @@ class IccSpoolerApp(toga.App):
             self.neutral_min.value = float(c.neutral_min)
             self._collapse(self._color_body, self._neutral_body, self._neutral_anchor,
                            bool(c.neutral_to_k))
+            self.text_solid_black.value = bool(c.text_solid_black)
+            self.text_solid_black_luma.value = float(c.text_solid_black_luma)
             self.process_images.value = bool(c.process_images)
 
             scale = list(c.cmy_scale) + [1.0, 1.0, 1.0]
@@ -1335,6 +1342,8 @@ class IccSpoolerApp(toga.App):
             neutral_threshold=float(self.neutral_threshold.value or 0.0),
             neutral_min=float(self.neutral_min.value or 0.0),
             neutral_vector_only=bool(self.neutral_vector_only.value),
+            text_solid_black=bool(self.text_solid_black.value),
+            text_solid_black_luma=float(self.text_solid_black_luma.value or 0.0),
             process_images=bool(self.process_images.value),
             target_icc=self.target_icc.value.strip(),
             input_rgb_icc=self.input_rgb_icc.value.strip(),

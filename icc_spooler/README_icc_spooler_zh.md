@@ -88,7 +88,14 @@
 
 `color` 段见 `config.py`：K 减量 / 动态 K 曲线 / 保留纯黑 / CMY 缩放 /
 逐通道 gamma / GCR / UCR / rich black / TAC / RGB→CMYK(ICC) / 灰→K /
-中性灰改走 K（`neutral_to_k` + `neutral_threshold` + `neutral_min`）/ `process_images`。
+中性灰改走 K（`neutral_to_k` + `neutral_threshold` + `neutral_min`）/
+矢量文字近黑变实心黑（`text_solid_black` + `text_solid_black_luma`）/ `process_images`。
+
+**矢量文字实心黑**（`text_solid_black`，默认关）：开启后，绘制文字时如果当时
+的填充色接近黑色（亮度 ≤ `text_solid_black_luma`，默认 0.1 且近中性），就把这段
+文字临时改成实心 `K=100` 再绘制，画完恢复原色。原因是：任何低于 100% 的颜色都要
+挂网（half-tone），小字笔画细，网点间距一大就糊成「网状」；实心黑不挂网。它只影响
+文字绘制算子（`show` 等），不影响图形和图像。
 
 
 ## 安装（概要）

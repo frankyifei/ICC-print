@@ -61,6 +61,14 @@ class ColorSettings:
     # When True, neutral_to_k only rewrites vector content; image pixels keep the
     # ICC conversion (photos generally should not be forced to a flat K-only).
     neutral_vector_only: bool = True
+    # Vector text protection: when a text-showing operator draws a near-black
+    # color, force solid black (C=M=Y=0, K=1) for the glyphs. A halftone screen
+    # (any tone below 100%) turns thin small-text strokes into a mesh, because
+    # the screen's dot spacing is large relative to the stroke width; solid K
+    # prints without a screen. `text_solid_black_luma` is the maximum lightness
+    # (0..1) still treated as black (e.g. 0.10 catches black and near-black).
+    text_solid_black: bool = False
+    text_solid_black_luma: float = 0.10
     process_images: bool = True
     target_icc: str = "JapanColor2001Uncoated.icc"
     input_rgb_icc: str = ""
@@ -142,6 +150,8 @@ class AppConfig:
             problems.append(tr('color.neutral_threshold must be within 0..1 (e.g. 0.04 ≈ 10/255).'))
         if not 0.0 <= float(c.neutral_min) <= 1.0:
             problems.append(tr('color.neutral_min must be within 0..1 (e.g. 0.05).'))
+        if not 0.0 <= float(c.text_solid_black_luma) <= 1.0:
+            problems.append(tr('color.text_solid_black_luma must be within 0..1.'))
         if (c.rgb_to_cmyk or c.enabled) and c.target_icc:
             if not Path(c.target_icc).is_file():
                 problems.append(tr('Target ICC not found: {icc} (required for RGB→CMYK).').format(

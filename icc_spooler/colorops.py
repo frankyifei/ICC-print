@@ -127,7 +127,7 @@ class ColorEngine:
         s = self.s
         if not s.enabled:
             return False
-        if s.rgb_to_cmyk or s.gray_to_k or s.neutral_to_k:
+        if s.rgb_to_cmyk or s.gray_to_k or s.neutral_to_k or s.text_solid_black:
             return True
         if (s.k_reduction > 0.0 or s.k_curve_enabled or s.gcr > 0.0 or s.ucr > 0.0
                 or s.rich_black > 0.0 or s.tac_limit > 0.0):
@@ -243,6 +243,34 @@ class ColorEngine:
     def gray_to_cmyk(self, gray: float):
         g = clamp01(gray)
         return (0.0, 0.0, 0.0, 1.0 - g)
+
+    def wants_text_solid_black(self) -> bool:
+        """True when near-black vector text should be forced to solid K."""
+        return bool(self.s.enabled and self.s.text_solid_black)
+
+    def is_blackish(self, space: str, values) -> bool:
+        """True when a fill color counts as (near-)black for text protection.
+
+        Evaluated on the color as the document specifies it (before our
+        transforms). Dark saturated colors are excluded by the neutrality test,
+        so only near-neutral dark colors snap to solid black.
+        """
+        thr = float(self.s.text_solid_black_luma)
+        spread = float(self.s.neutral_threshold)
+        if space == "DeviceGray":
+            return clamp01(values[0]) <= thr
+        if space == "DeviceRGB":
+            r, g, b = (clamp01(v) for v in values[:3])
+            luma = 0.299 * r + 0.587 * g + 0.114 * b
+            return luma <= thr and (max(r, g, b) - min(r, g, b)) <= spread + 1e-9
+        if space == "DeviceCMYK":
+            c, m, y, k = (clamp01(v) for v in values[:4])
+            if max(c, m, y) <= 1e-9 and k >= 1.0 - 1e-9:
+                return False  # already solid black, nothing to fix
+            luma = (1.0 - c) * (1.0 - m) * (1.0 - y) * (1.0 - k)
+            chroma = max(c, m, y) - min(c, m, y)
+            return luma <= thr and chroma <= max(spread, 0.15) + 1e-9
+        return False
 
     def transform_cmyk(self, c: float, m: float, y: float, k: float):
         s = self.s
