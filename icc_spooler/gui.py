@@ -82,7 +82,8 @@ class IccSpoolerApp(toga.App):
         "gcr", "ucr", "rich_black", "rich_black_threshold", "tac_limit",
         "tac_mode", "rgb_to_cmyk", "gray_to_k", "neutral_to_k",
         "neutral_threshold", "neutral_min", "neutral_vector_only",
-        "text_solid_black", "text_solid_black_luma", "process_images",
+        "text_solid_black", "text_solid_black_luma", "text_small_size",
+        "text_dpi", "process_images",
         "target_icc", "input_rgb_icc", "intent", "cmm", "lang",
     )
     AUTOSAVE_DELAY = 0.8
@@ -524,8 +525,10 @@ class IccSpoolerApp(toga.App):
         self.neutral_vector_only = _switch(tr('Apply to vector content only (do not route images to K)'), True)
         self.neutral_threshold = _num(0.04, 0.0, 1.0, 0.01)
         self.neutral_min = _num(0.05, 0.0, 1.0, 0.01)
-        self.text_solid_black = _switch(tr('Keep near-black vector text solid black (K=100) so small text is not halftoned into a mesh'))
-        self.text_solid_black_luma = _num(0.10, 0.0, 1.0, 0.01)
+        self.text_solid_black = _switch(tr('Keep vector text solid (small or near-black text as K=100; larger gray text as CMY gray) so glyph strokes are not screened into a mesh'))
+        self.text_solid_black_luma = _num(0.20, 0.0, 1.0, 0.01)
+        self.text_small_size = _num(7.0, 0.0, 200.0, 0.5)
+        self.text_dpi = _num(600.0, 72.0, 2400.0, 50.0)
         self.process_images = _switch(tr('Process image pixels (automatic when there is a CMYK adjustment)'), True)
         self._neutral_body = toga.Box(
             style=Pack(direction=COLUMN),
@@ -554,7 +557,9 @@ class IccSpoolerApp(toga.App):
                 _row("", self.gray_to_k),
                 self._neutral_anchor,
                 _row("", self.text_solid_black),
-                _row(tr('Text near-black threshold (0..1, e.g. 0.1)'), self.text_solid_black_luma),
+                _row(tr('Text near-black threshold (0..1, e.g. 0.2; text darker than this is K=100 at any size)'), self.text_solid_black_luma),
+                _row(tr('Small-text size (pt; at or below this, gray text becomes K=100)'), self.text_small_size),
+                _row(tr('Printer resolution (dpi, used to convert text size to points)'), self.text_dpi),
                 _row("", self.process_images),
                 toga.Box(style=Pack(height=1, margin=(8, 0, 8, 0))),
                 k_section,
@@ -1262,6 +1267,8 @@ class IccSpoolerApp(toga.App):
                            bool(c.neutral_to_k))
             self.text_solid_black.value = bool(c.text_solid_black)
             self.text_solid_black_luma.value = float(c.text_solid_black_luma)
+            self.text_small_size.value = float(c.text_small_size)
+            self.text_dpi.value = float(c.text_dpi)
             self.process_images.value = bool(c.process_images)
 
             scale = list(c.cmy_scale) + [1.0, 1.0, 1.0]
@@ -1344,6 +1351,8 @@ class IccSpoolerApp(toga.App):
             neutral_vector_only=bool(self.neutral_vector_only.value),
             text_solid_black=bool(self.text_solid_black.value),
             text_solid_black_luma=float(self.text_solid_black_luma.value or 0.0),
+            text_small_size=float(self.text_small_size.value or 0.0),
+            text_dpi=float(self.text_dpi.value or 0.0),
             process_images=bool(self.process_images.value),
             target_icc=self.target_icc.value.strip(),
             input_rgb_icc=self.input_rgb_icc.value.strip(),

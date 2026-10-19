@@ -89,13 +89,23 @@
 `color` 段见 `config.py`：K 减量 / 动态 K 曲线 / 保留纯黑 / CMY 缩放 /
 逐通道 gamma / GCR / UCR / rich black / TAC / RGB→CMYK(ICC) / 灰→K /
 中性灰改走 K（`neutral_to_k` + `neutral_threshold` + `neutral_min`）/
-矢量文字近黑变实心黑（`text_solid_black` + `text_solid_black_luma`）/ `process_images`。
+ 矢量文字实心防挂网（`text_solid_black` + `text_solid_black_luma` +
+ `text_small_size` + `text_dpi`）/ `process_images`。
 
-**矢量文字实心黑**（`text_solid_black`，默认关）：开启后，绘制文字时如果当时
-的填充色接近黑色（亮度 ≤ `text_solid_black_luma`，默认 0.1 且近中性），就把这段
-文字临时改成实心 `K=100` 再绘制，画完恢复原色。原因是：任何低于 100% 的颜色都要
-挂网（half-tone），小字笔画细，网点间距一大就糊成「网状」；实心黑不挂网。它只影响
-文字绘制算子（`show` 等），不影响图形和图像。
+**矢量文字实心防挂网**（`text_solid_black`，默认关）：开启后，绘制文字时按
+填充色和字号决定临时配色，画完恢复原色。任何低于 100% 的颜色都要挂网
+（half-tone），小字笔画细，网点间距一大就糊成「网状」；实心黑不挂网。规则：
+
+- 中性色（通道接近，灰）且**近黑**（`tone ≥ 1 − text_solid_black_luma`，
+  默认 0.2）→ 不论大小都用实心 `K=100`；
+- 其余中性灰：**字号 ≤ `text_small_size` pt**（默认 7）→ 实心 `K=100`；
+  更大的灰字 → `C=M=Y=tone, K=0` 的 CMY 复合灰（避免大面积纯黑太生硬），
+  其中 `tone = 1 − luma`；
+- 非中性（有彩色）文字不动。
+
+字号由文字前的 CTM 缩放估算：`size_pt = 缩放 × 72 / text_dpi`（默认
+`text_dpi=600`，即打印机分辨率）。只影响文字绘制算子（`show` 等），不影响图形和
+图像；已经是 `K=100` 的文字会跳过。
 
 
 ## 安装（概要）

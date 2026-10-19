@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import re
 
-from .colorops import ColorEngine, fmt_num
+from .colorops import ColorEngine, fmt_num, clamp01
 from .imageops import rewrite_colorimages, rewrite_pscript_images
-from .pstokens import Tok, tokenize, find_operands, find_colorspace
+from .pstokens import Tok, tokenize, find_operands, find_colorspace, is_number
 
 COLOR_CMYK = {b"setcmykcolor"}
 COLOR_RGB = {b"setrgbcolor"}
@@ -22,14 +22,17 @@ COLOR_CURRENT = {b"setcolor", b"sc", b"scn", b"SC", b"SCN"}
 TEXT_OPS = {b"show", b"ashow", b"widthshow", b"awidthshow", b"kshow",
             b"xshow", b"yshow", b"xyshow", b"glyphshow", b"cshow"}
 SPACE_ARITY = {"DeviceGray": 1, "DeviceRGB": 3, "DeviceCMYK": 4}
+# Matrix operators that change the CTM scale (used to estimate text size).
+CONCAT_OPS = {b"concat", b"cm"}
 
 # PScript5 (and other producers) define short aliases for the color operators,
 # e.g. `/rg/setrgbcolor load def`, `/g/setgray load def`, `/k/setcmykcolor load def`.
 # Real jobs then call the aliases, so the full-name dispatch above would miss them.
-# Text operators can be aliased the same way (`/S/show load def`).
+# Text (`/Tj/show`) and graphics-state (`/q/gsave`) operators are aliased the same way.
 _OP_ALT = (rb"(setrgbcolor|setcmykcolor|setgray|setcolor|setcolorspace|"
            rb"show|ashow|widthshow|awidthshow|kshow|xshow|yshow|xyshow|"
-           rb"glyphshow|cshow)")
+           rb"glyphshow|cshow|gsave|grestore|grestoreall|concat|setmatrix|"
+           rb"initmatrix|scale|rotate|translate)")
 _ALIAS_DEFS = (
     re.compile(rb"/([^\s/()<>\[\]{}%]+)/\s*" + _OP_ALT + rb"\b\s+load\b"),
     re.compile(rb"/([^\s/()<>\[\]{}%]+)\s*\{\s*" + _OP_ALT + rb"\s*\}"
@@ -73,6 +76,54 @@ def _emit_setcmyk(out: list[Tok], values) -> None:
     out.append(Tok("ws", b" "))
 
 
+def find_matrix(toks: list[Tok], op_index: int):
+    """Return the 6 numbers of the matrix operand for cm/concat/setmatrix.
+
+    Accepts both the array form (`[a b c d e f] cm`) and the inline form
+    (`a b c d e f cm`). Returns None when the operand is a name/procedure
+    (e.g. a page-setup matrix defined elsewhere), which is simply skipped.
+    """
+    j = op_index - 1
+    while j >= 0 and toks[j].kind in ("ws", "comment"):
+        j -= 1
+    if j < 0:
+        return None
+    if toks[j].kind == "punct" and toks[j].data == b"]":
+        depth = 0
+        nums: list[float] = []
+        k = j
+        while k >= 0:
+            t = toks[k]
+            if t.kind == "punct" and t.data == b"]":
+                depth += 1
+            elif t.kind == "punct" and t.data == b"[":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif depth == 1 and t.kind == "token" and is_number(t.data):
+                nums.append(float(t.data))
+            elif depth == 1 and t.kind not in ("ws", "comment"):
+                return None
+            k -= 1
+        if k < 0 or depth != 0:
+            return None
+        nums.reverse()
+        return nums if len(nums) == 6 else None
+    info = find_operands(toks, op_index, 6)
+    if info:
+        return info[1]
+    return None
+
+
+def _already_solid_black(space: str, values) -> bool:
+    if space == "DeviceGray":
+        return clamp01(values[0]) <= 1e-9
+    if space == "DeviceCMYK":
+        c, m, y, k = (clamp01(v) for v in values[:4])
+        return max(c, m, y) <= 1e-9 and k >= 1.0 - 1e-9
+    return False
+
+
 def process_ps(data: bytes, engine: ColorEngine) -> bytes:
     try:
         toks = tokenize(data)
@@ -85,8 +136,30 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
     out: list[Tok] = []
     pos: dict[int, int] = {}
     current_space = None
-    cur_blackish = False
-    blackish_stack: list[bool] = []
+    # Current fill color as the document specifies it: (space, values) or None.
+    cur_color = None
+    # Approximate CTM scale (starts at 1; named page-setup matrices are skipped),
+    # used only to tell small text from large text.
+    cur_scale = 1.0
+    gstack: list = []
+    dpi = max(1.0, float(s.text_dpi))
+    luma_thr = float(s.text_solid_black_luma)
+    small_pt = float(s.text_small_size)
+
+    def push_state() -> None:
+        gstack.append((cur_scale, cur_color))
+
+    def pop_state() -> None:
+        nonlocal cur_scale, cur_color
+        if gstack:
+            cur_scale, cur_color = gstack.pop()
+        else:
+            cur_scale, cur_color = 1.0, None
+
+    def scale_by(factor: float) -> None:
+        nonlocal cur_scale
+        if factor > 1e-9:
+            cur_scale *= factor
 
     def replace_operands(start: int, new_values) -> None:
         cut = pos.get(start)
@@ -106,38 +179,71 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
             d = aliases.get(t.data, t.data)
 
             if d in TEXT_OPS:
-                if cur_blackish and engine.wants_text_solid_black():
+                target = None
+                if engine.wants_text_solid_black() and cur_color is not None:
+                    space, vals = cur_color
+                    neutral, tone = engine.text_neutral_tone(space, vals)
+                    if neutral and not _already_solid_black(space, vals):
+                        size_pt = cur_scale * 72.0 / dpi
+                        near_black = tone >= 1.0 - luma_thr - 1e-9
+                        if near_black or size_pt <= small_pt + 1e-9:
+                            target = (0.0, 0.0, 0.0, 1.0)
+                        elif tone > 1e-9:
+                            target = (tone, tone, tone, 0.0)  # CMY gray, no K
+                if target is not None:
                     _ensure_sep(out)
                     out.append(Tok("token", b"gsave"))
                     out.append(Tok("ws", b" "))
-                    _emit_setcmyk(out, (0.0, 0.0, 0.0, 1.0))
+                    _emit_setcmyk(out, target)
                     out.append(t)
                     out.append(Tok("ws", b" "))
                     out.append(Tok("token", b"grestore"))
                     out.append(Tok("ws", b" "))
                     handled = True
 
-            elif t.data == b"gsave":
-                blackish_stack.append(cur_blackish)
+            elif d == b"gsave":
+                push_state()
 
-            elif t.data == b"grestore":
-                cur_blackish = blackish_stack.pop() if blackish_stack else False
+            elif d == b"grestore":
+                pop_state()
 
-            elif t.data == b"grestoreall":
-                cur_blackish = False
-                blackish_stack.clear()
+            elif d == b"grestoreall":
+                if gstack:
+                    cur_scale, cur_color = gstack[0]
+                    gstack.clear()
+                else:
+                    cur_scale, cur_color = 1.0, None
+
+            elif d in CONCAT_OPS:
+                m = find_matrix(toks, i)
+                if m:
+                    scale_by(abs(m[0] * m[3] - m[1] * m[2]) ** 0.5)
+
+            elif d == b"scale":
+                info = find_operands(toks, i, 2)
+                if info:
+                    sx, sy = info[1]
+                    scale_by(abs(sx * sy) ** 0.5)
+
+            elif d == b"setmatrix":
+                m = find_matrix(toks, i)
+                if m:
+                    cur_scale = abs(m[0] * m[3] - m[1] * m[2]) ** 0.5
+
+            elif d == b"initmatrix":
+                cur_scale = 1.0
 
             elif d == b"setcolorspace":
                 space = find_colorspace(toks, i)
                 if space:
                     current_space = space
-                cur_blackish = False
+                cur_color = None
 
             elif d in COLOR_CMYK:
                 info = find_operands(toks, i, 4)
                 if info:
                     start, values = info
-                    cur_blackish = engine.is_blackish("DeviceCMYK", values)
+                    cur_color = ("DeviceCMYK", values)
                     new_values = engine.transform_cmyk(*values)
                     if _changed(values, new_values):
                         replace_operands(start, new_values)
@@ -150,7 +256,7 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
                 info = find_operands(toks, i, 3)
                 if info:
                     start, values = info
-                    cur_blackish = engine.is_blackish("DeviceRGB", values)
+                    cur_color = ("DeviceRGB", values)
                 if engine.wants_rgb():
                     if info:
                         start, values = info
@@ -166,7 +272,7 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
             elif d in COLOR_GRAY:
                 info = find_operands(toks, i, 1)
                 if info:
-                    cur_blackish = engine.is_blackish("DeviceGray", info[1])
+                    cur_color = ("DeviceGray", info[1])
                 if engine.wants_gray():
                     if info:
                         start, values = info
@@ -184,7 +290,7 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
                     info = find_operands(toks, i, SPACE_ARITY[current_space])
                     if info:
                         start, values = info
-                        cur_blackish = engine.is_blackish(current_space, values)
+                        cur_color = (current_space, values)
                         if current_space == "DeviceCMYK":
                             new_values = engine.transform_cmyk(*values)
                             if _changed(values, new_values):

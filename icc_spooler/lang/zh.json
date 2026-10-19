@@ -228,6 +228,12 @@
   "RGB→CMYK requires a valid target ICC file.": "RGB→CMYK 需要有效的目标 ICC 文件。",
   "Windows sRGB profile not found (you can specify an input RGB ICC).": "找不到 Windows 的 sRGB 配置文件（可指定输入 RGB ICC）。",
   "Keep near-black vector text solid black (K=100) so small text is not halftoned into a mesh": "矢量文字：近黑强制实心黑（K=100，避免小字被挂网变糊）",
+  "Keep vector text solid (small or near-black text as K=100; larger gray text as CMY gray) so glyph strokes are not screened into a mesh": "矢量文字保持实心（小字或近黑=K=100；较大的灰字=CMY 复合灰），避免笔画被挂网变糊",
   "Text near-black threshold (0..1, e.g. 0.1)": "文字近黑阈值（0..1，例如 0.1）",
-  "color.text_solid_black_luma must be within 0..1.": "color.text_solid_black_luma 必须在 0..1 之间。"
+  "Text near-black threshold (0..1, e.g. 0.2; text darker than this is K=100 at any size)": "文字近黑阈值（0..1，例如 0.2；比它更深的文字不论大小都用 K=100）",
+  "Small-text size (pt; at or below this, gray text becomes K=100)": "小字阈值（pt；不大于此值的灰字变为 K=100）",
+  "Printer resolution (dpi, used to convert text size to points)": "打印机分辨率（dpi，用于把文字大小换算成 pt）",
+  "color.text_solid_black_luma must be within 0..1.": "color.text_solid_black_luma 必须在 0..1 之间。",
+  "color.text_small_size must be >= 0.": "color.text_small_size 必须 >= 0。",
+  "color.text_dpi must be > 0.": "color.text_dpi 必须 > 0。"
 }

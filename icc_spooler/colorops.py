@@ -248,29 +248,28 @@ class ColorEngine:
         """True when near-black vector text should be forced to solid K."""
         return bool(self.s.enabled and self.s.text_solid_black)
 
-    def is_blackish(self, space: str, values) -> bool:
-        """True when a fill color counts as (near-)black for text protection.
+    def text_neutral_tone(self, space: str, values):
+        """Return ``(is_neutral, tone)`` for a text fill; tone 0=white, 1=black.
 
-        Evaluated on the color as the document specifies it (before our
-        transforms). Dark saturated colors are excluded by the neutrality test,
-        so only near-neutral dark colors snap to solid black.
+        Neutral means the channels are close (a gray); colored text is left to
+        the normal pipeline. Tones are evaluated on the color as the document
+        specifies it (before our transforms).
         """
-        thr = float(self.s.text_solid_black_luma)
         spread = float(self.s.neutral_threshold)
         if space == "DeviceGray":
-            return clamp01(values[0]) <= thr
+            return True, 1.0 - clamp01(values[0])
         if space == "DeviceRGB":
             r, g, b = (clamp01(v) for v in values[:3])
+            if (max(r, g, b) - min(r, g, b)) > spread + 1e-9:
+                return False, 0.0
             luma = 0.299 * r + 0.587 * g + 0.114 * b
-            return luma <= thr and (max(r, g, b) - min(r, g, b)) <= spread + 1e-9
+            return True, 1.0 - luma
         if space == "DeviceCMYK":
             c, m, y, k = (clamp01(v) for v in values[:4])
-            if max(c, m, y) <= 1e-9 and k >= 1.0 - 1e-9:
-                return False  # already solid black, nothing to fix
-            luma = (1.0 - c) * (1.0 - m) * (1.0 - y) * (1.0 - k)
-            chroma = max(c, m, y) - min(c, m, y)
-            return luma <= thr and chroma <= max(spread, 0.15) + 1e-9
-        return False
+            if (max(c, m, y) - min(c, m, y)) > max(spread, 0.15) + 1e-9:
+                return False, 0.0
+            return True, clamp01(max(k, (c + m + y) / 3.0))
+        return False, 0.0
 
     def transform_cmyk(self, c: float, m: float, y: float, k: float):
         s = self.s

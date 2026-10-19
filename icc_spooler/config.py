@@ -61,14 +61,18 @@ class ColorSettings:
     # When True, neutral_to_k only rewrites vector content; image pixels keep the
     # ICC conversion (photos generally should not be forced to a flat K-only).
     neutral_vector_only: bool = True
-    # Vector text protection: when a text-showing operator draws a near-black
-    # color, force solid black (C=M=Y=0, K=1) for the glyphs. A halftone screen
-    # (any tone below 100%) turns thin small-text strokes into a mesh, because
-    # the screen's dot spacing is large relative to the stroke width; solid K
-    # prints without a screen. `text_solid_black_luma` is the maximum lightness
-    # (0..1) still treated as black (e.g. 0.10 catches black and near-black).
+    # Vector text protection: text must not be printed as a single-channel K
+    # halftone. Below 100% every tone is screened; small glyph strokes then turn
+    # into a mesh because the screen cells are large relative to the stroke.
+    #   - near-black text (tone >= 1 - text_solid_black_luma) -> solid K=100
+    #   - text at or below text_small_size points           -> solid K=100
+    #   - other neutral gray text (larger)                   -> CMY gray (no K)
+    # Only text-showing operators are affected; graphics and images are not.
+    # `text_dpi` converts the tracked text scale into points (px = pt * dpi/72).
     text_solid_black: bool = False
-    text_solid_black_luma: float = 0.10
+    text_solid_black_luma: float = 0.20
+    text_small_size: float = 7.0
+    text_dpi: float = 600.0
     process_images: bool = True
     target_icc: str = "JapanColor2001Uncoated.icc"
     input_rgb_icc: str = ""
@@ -152,6 +156,10 @@ class AppConfig:
             problems.append(tr('color.neutral_min must be within 0..1 (e.g. 0.05).'))
         if not 0.0 <= float(c.text_solid_black_luma) <= 1.0:
             problems.append(tr('color.text_solid_black_luma must be within 0..1.'))
+        if float(c.text_small_size) < 0.0:
+            problems.append(tr('color.text_small_size must be >= 0.'))
+        if float(c.text_dpi) <= 0.0:
+            problems.append(tr('color.text_dpi must be > 0.'))
         if (c.rgb_to_cmyk or c.enabled) and c.target_icc:
             if not Path(c.target_icc).is_file():
                 problems.append(tr('Target ICC not found: {icc} (required for RGB→CMYK).').format(
