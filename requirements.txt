@@ -1,0 +1,8 @@
+# ICC Spooler (new program: icc_spooler + IccSpooler.pyw)
+toga>=0.5.7
+pystray>=0.19
+Pillow>=10.0
+pywin32>=306; platform_system == "Windows"
+
+# The legacy reference app (brother_icc_print/ + brother_icc_print_app.py)
+# additionally needs: PySide6>=6.7, PyMuPDF>=1.24, pikepdf>=9
