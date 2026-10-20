@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from .colorops import ColorEngine, fmt_num, clamp01
-from .imageops import rewrite_colorimages, rewrite_pscript_images
+from .imageops import image_data_spans, rewrite_colorimages, rewrite_pscript_images
 from .pstokens import Tok, tokenize, find_operands, find_colorspace, is_number
 
 COLOR_CMYK = {b"setcmykcolor"}
@@ -80,10 +80,11 @@ def _emit_sep_black(out: list[Tok], tint: float) -> None:
     """Set a device-black separation tint, i.e. pure K with no CMY.
 
     Acrobat's PScript5 driver draws neutral map text this way:
-    ``/Separation(Black) /DeviceCMYK {0 0 0 4 -1 roll}``. A plain
+    ``true sop 1 /0 /CSD get_res sepcs <tint> sep``. A plain
     ``setcmykcolor`` would be run through the printer's CMYK profile (rich
     black, four screens); a separation reaches the K plate directly, so the
-    glyph strokes stay crisp and match Acrobat.
+    glyph strokes stay crisp and match Acrobat. Black text also overprints, so
+    glyphs sitting on the map image do not knock a white hole in it.
     """
     _ensure_sep(out)
     out.append(Tok("token", b"[/Separation/Black/DeviceCMYK{0 0 0 4 -1 roll}]setcolorspace"))
@@ -91,6 +92,8 @@ def _emit_sep_black(out: list[Tok], tint: float) -> None:
     out.append(Tok("token", fmt_num(tint)))
     out.append(Tok("ws", b" "))
     out.append(Tok("token", b"setcolor"))
+    out.append(Tok("ws", b" "))
+    out.append(Tok("token", b"/setoverprint where{pop true setoverprint}if"))
     out.append(Tok("ws", b" "))
 
 
@@ -144,7 +147,7 @@ def _already_solid_black(space: str, values) -> bool:
 
 def process_ps(data: bytes, engine: ColorEngine) -> bytes:
     try:
-        toks = tokenize(data)
+        toks = tokenize(data, image_data_spans(data))
     except Exception:
         return data
 

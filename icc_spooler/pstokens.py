@@ -80,11 +80,28 @@ def _scan_binary(data: bytes, start: int) -> int:
     return n
 
 
-def tokenize(data: bytes) -> list[Tok]:
+def tokenize(data: bytes, skip=None) -> list[Tok]:
+    """Split PostScript into tokens.
+
+    `skip` is a list of (start, end) byte ranges that must be kept verbatim as
+    a single opaque token. Image data after `colorimage`/`image` is binary and
+    may contain parentheses, percent signs or stray whitespace; without this
+    the scanner would mis-read it and lose every operator that follows.
+    """
+    spans = sorted(skip) if skip else []
+    si = 0
     toks: list[Tok] = []
     i = 0
     n = len(data)
     while i < n:
+        while si < len(spans) and spans[si][1] <= i:
+            si += 1
+        if si < len(spans) and spans[si][0] <= i < spans[si][1]:
+            end = spans[si][1]
+            toks.append(Tok("opaque", data[i:end]))
+            i = end
+            si += 1
+            continue
         ch = data[i]
         if ch in WS:
             j = i

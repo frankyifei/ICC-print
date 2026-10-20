@@ -207,6 +207,87 @@ def _blank_stats(stats: dict, key: str) -> None:
     stats[key] = stats.get(key, 0) + 1
 
 
+_INLINE_IMAGE = re.compile(
+    rb"/DataSource\s*currentfile\s*((?:\s*/\s*" + _FILTER + rb"\s*filter\s*)+)>>\s*image\b"
+)
+
+
+def _rle_end(data: bytes, pos: int):
+    """Length-only RunLengthDecode scan; returns the offset past the EOD byte."""
+    i, n = pos, len(data)
+    while i < n:
+        c = data[i]
+        i += 1
+        if c == 128:
+            return i
+        i += (c + 1) if c < 128 else 1
+    return None
+
+
+def _payload_end(data: bytes, pos: int, first: str):
+    """Offset just past a `currentfile` image stream, without decoding it."""
+    if first in ("ASCII85Decode", "ASCIIHexDecode"):
+        term = b"~>" if first == "ASCII85Decode" else b">"
+        end = data.find(term, pos)
+        return end + len(term) if end >= 0 else None
+    if first == "DCTDecode":
+        end = data.find(b"\xff\xd9", pos)
+        return end + 2 if end >= 0 else None
+    if first == "RunLengthDecode":
+        return _rle_end(data, pos)
+    if first == "FlateDecode":
+        obj = zlib.decompressobj()
+        step = 65536
+        j = pos
+        while j < len(data):
+            chunk = data[j:j + step]
+            j += len(chunk)
+            try:
+                obj.decompress(chunk)
+            except Exception:
+                return None
+            if obj.eof:
+                return j - len(obj.unused_data)
+        return None
+    return None
+
+
+def image_data_spans(data: bytes) -> list:
+    """Byte ranges that hold inline image data (binary, not PostScript)."""
+    spans = []
+
+    def add(start: int, filters) -> None:
+        j = start
+        while j < len(data) and data[j] in b" \t\r\n":
+            j += 1
+        end = _payload_end(data, j, filters[0]) if filters else None
+        if end and end > j:
+            spans.append((j, end))
+
+    for m in _INVOKE.finditer(data):
+        names = _FILTERNAME.findall(m.group(5))
+        if names:
+            add(m.end(), [n.lstrip(b"/").decode("ascii") for n in names])
+
+    for m in _INLINE_IMAGE.finditer(data):
+        names = _FILTERNAME.findall(m.group(1))
+        if names:
+            add(m.end(), [n.lstrip(b"/").decode("ascii") for n in names])
+
+    for m in _DON_INVOKE.finditer(data):
+        idx = int(m.group(2))
+        if idx == IDX_ASCII:
+            end = data.find(b"~>", m.end())
+            if end >= 0:
+                spans.append((m.end(), end + 2))
+        elif idx == IDX_BINARY:
+            end = _rle_end(data, m.end())
+            if end:
+                spans.append((m.end(), end))
+
+    return sorted(spans)
+
+
 def rewrite_colorimages(data: bytes, engine, stats: dict) -> bytes:
     if not engine.wants_images():
         return data
