@@ -28,7 +28,7 @@ def _describe_color(c: ColorSettings) -> str:
     if c.neutral_to_k:
         parts.append(f'neutral>K({c.neutral_threshold:g})')
     if c.text_solid_black:
-        parts.append(f'text>K(gain {c.text_k_gain:g}, dpi {c.text_dpi:g})')
+        parts.append(f'text>K(gain {c.text_k_gain:g})')
     if c.k_reduction:
         parts.append(f'K-{c.k_reduction:g}')
     if c.gcr:

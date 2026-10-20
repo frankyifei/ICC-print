@@ -82,7 +82,7 @@ class IccSpoolerApp(toga.App):
         "gcr", "ucr", "rich_black", "rich_black_threshold", "tac_limit",
         "tac_mode", "rgb_to_cmyk", "gray_to_k", "neutral_to_k",
         "neutral_threshold", "neutral_min", "neutral_vector_only",
-        "text_solid_black", "text_k_gain", "text_dpi", "process_images",
+        "text_solid_black", "text_k_gain", "process_images",
         "target_icc", "input_rgb_icc", "intent", "cmm", "lang",
     )
     AUTOSAVE_DELAY = 0.8
@@ -525,7 +525,6 @@ class IccSpoolerApp(toga.App):
         self.neutral_min = _num(0.05, 0.0, 1.0, 0.01)
         self.text_solid_black = _switch(tr('Print all neutral vector text as single-channel K (matches Acrobat; no 4-color rich black on glyph strokes)'))
         self.text_k_gain = _num(1.20, 0.0, 3.0, 0.05)
-        self.text_dpi = _num(600.0, 72.0, 2400.0, 50.0)
         self.process_images = _switch(tr('Process image pixels (automatic when there is a CMYK adjustment)'), True)
 
         k_section = self._build_k_section()
@@ -547,7 +546,6 @@ class IccSpoolerApp(toga.App):
             body, self.text_solid_black,
             [
                 _row(tr('Text K gain (0..3; 1.2 reproduces Acrobat\'s tints, e.g. src 0.29 -> K 85%)'), self.text_k_gain),
-                _row(tr('Printer resolution (dpi, used to convert text size to points)'), self.text_dpi),
             ],
         )
 
@@ -1287,7 +1285,6 @@ class IccSpoolerApp(toga.App):
             self.neutral_min.value = float(c.neutral_min)
             self.text_solid_black.value = bool(c.text_solid_black)
             self.text_k_gain.value = float(c.text_k_gain)
-            self.text_dpi.value = float(c.text_dpi)
             self._sync_param_groups()
             self.process_images.value = bool(c.process_images)
 
@@ -1371,7 +1368,6 @@ class IccSpoolerApp(toga.App):
             neutral_vector_only=bool(self.neutral_vector_only.value),
             text_solid_black=bool(self.text_solid_black.value),
             text_k_gain=float(self.text_k_gain.value or 0.0),
-            text_dpi=float(self.text_dpi.value or 0.0),
             process_images=bool(self.process_images.value),
             target_icc=self.target_icc.value.strip(),
             input_rgb_icc=self.input_rgb_icc.value.strip(),
