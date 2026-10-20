@@ -1,3 +1,4 @@
 .loopx/
 __pycache__/
 *.pyc
+config.json
