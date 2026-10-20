@@ -76,6 +76,24 @@ def _emit_setcmyk(out: list[Tok], values) -> None:
     out.append(Tok("ws", b" "))
 
 
+def _emit_sep_black(out: list[Tok], tint: float) -> None:
+    """Set a device-black separation tint, i.e. pure K with no CMY.
+
+    Acrobat's PScript5 driver draws neutral map text this way:
+    ``/Separation(Black) /DeviceCMYK {0 0 0 4 -1 roll}``. A plain
+    ``setcmykcolor`` would be run through the printer's CMYK profile (rich
+    black, four screens); a separation reaches the K plate directly, so the
+    glyph strokes stay crisp and match Acrobat.
+    """
+    _ensure_sep(out)
+    out.append(Tok("token", b"[/Separation/Black/DeviceCMYK{0 0 0 4 -1 roll}]setcolorspace"))
+    out.append(Tok("ws", b" "))
+    out.append(Tok("token", fmt_num(tint)))
+    out.append(Tok("ws", b" "))
+    out.append(Tok("token", b"setcolor"))
+    out.append(Tok("ws", b" "))
+
+
 def find_matrix(toks: list[Tok], op_index: int):
     """Return the 6 numbers of the matrix operand for cm/concat/setmatrix.
 
@@ -142,9 +160,7 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
     # used only to tell small text from large text.
     cur_scale = 1.0
     gstack: list = []
-    dpi = max(1.0, float(s.text_dpi))
-    luma_thr = float(s.text_solid_black_luma)
-    small_pt = float(s.text_small_size)
+    k_gain = max(0.0, float(s.text_k_gain))
 
     def push_state() -> None:
         gstack.append((cur_scale, cur_color))
@@ -184,17 +200,14 @@ def process_ps(data: bytes, engine: ColorEngine) -> bytes:
                     space, vals = cur_color
                     neutral, tone = engine.text_neutral_tone(space, vals)
                     if neutral and not _already_solid_black(space, vals):
-                        size_pt = cur_scale * 72.0 / dpi
-                        near_black = tone >= 1.0 - luma_thr - 1e-9
-                        if near_black or size_pt <= small_pt + 1e-9:
-                            target = (0.0, 0.0, 0.0, 1.0)
-                        elif tone > 1e-9:
-                            target = (tone, tone, tone, 0.0)  # CMY gray, no K
+                        k = min(1.0, tone * k_gain)
+                        if k > 1e-9:
+                            target = k
                 if target is not None:
                     _ensure_sep(out)
                     out.append(Tok("token", b"gsave"))
                     out.append(Tok("ws", b" "))
-                    _emit_setcmyk(out, target)
+                    _emit_sep_black(out, target)
                     out.append(t)
                     out.append(Tok("ws", b" "))
                     out.append(Tok("token", b"grestore"))

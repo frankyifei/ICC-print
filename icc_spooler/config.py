@@ -61,15 +61,20 @@ class ColorSettings:
     # When True, neutral_to_k only rewrites vector content; image pixels keep the
     # ICC conversion (photos generally should not be forced to a flat K-only).
     neutral_vector_only: bool = True
-    # Vector text protection: text must not be printed as a single-channel K
-    # halftone. Below 100% every tone is screened; small glyph strokes then turn
-    # into a mesh because the screen cells are large relative to the stroke.
-    #   - near-black text (tone >= 1 - text_solid_black_luma) -> solid K=100
-    #   - text at or below text_small_size points           -> solid K=100
-    #   - other neutral gray text (larger)                   -> CMY gray (no K)
+    # Vector text: print all neutral text as a single K channel, matching what
+    # Acrobat's PostScript driver does (it emits /Separation(Black) with the
+    # alternate {0 0 0 tint}). Forcing neutral text through the RGB->CMYK ICC
+    # instead produces a 4-color rich black, which screens every stroke with
+    # four angles and looks like a mesh on small type.
+    #   tone = 1 - luminance of the fill (0 = white, 1 = black)
+    #   K    = clamp01(tone * text_k_gain)
+    # `text_k_gain` compensates for the printer profile's black gain; 1.2
+    # reproduces Acrobat's tints (e.g. src 0.29 -> K 85%, src 0.44 -> K 70%).
     # Only text-showing operators are affected; graphics and images are not.
     # `text_dpi` converts the tracked text scale into points (px = pt * dpi/72).
     text_solid_black: bool = False
+    text_k_gain: float = 1.2
+    # Deprecated: kept so older config.json files still load.
     text_solid_black_luma: float = 0.20
     text_small_size: float = 7.0
     text_dpi: float = 600.0
@@ -154,10 +159,8 @@ class AppConfig:
             problems.append(tr('color.neutral_threshold must be within 0..1 (e.g. 0.04 ≈ 10/255).'))
         if not 0.0 <= float(c.neutral_min) <= 1.0:
             problems.append(tr('color.neutral_min must be within 0..1 (e.g. 0.05).'))
-        if not 0.0 <= float(c.text_solid_black_luma) <= 1.0:
-            problems.append(tr('color.text_solid_black_luma must be within 0..1.'))
-        if float(c.text_small_size) < 0.0:
-            problems.append(tr('color.text_small_size must be >= 0.'))
+        if not 0.0 < float(c.text_k_gain) <= 3.0:
+            problems.append(tr('color.text_k_gain must be within 0..3 (e.g. 1.2).'))
         if float(c.text_dpi) <= 0.0:
             problems.append(tr('color.text_dpi must be > 0.'))
         if (c.rgb_to_cmyk or c.enabled) and c.target_icc:
